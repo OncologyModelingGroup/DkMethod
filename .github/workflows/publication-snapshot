@@ -1,0 +1,55 @@
+name: Verify clean publication snapshot
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'Publication/**'
+      - 'Data/**'
+      - 'Downstream/**'
+      - 'Pipeline/**'
+      - 'Standalone/**'
+      - 'Tests/**'
+      - 'ProcessPatientData.py'
+      - 'Model3Dand1D.py'
+      - 'FitDkForEachPatient.py'
+      - 'PDEgrid.py'
+      - 'LMclassNew.py'
+      - 'Example.py'
+      - 'requirements.txt'
+      - '.github/workflows/publication-snapshot.yml'
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Build and verify isolated candidate
+        run: |
+          mkdir -p Publication/__pycache__
+          printf "not-for-release" > Publication/__pycache__/untracked-secret.txt
+          python Publication/build_snapshot.py "$RUNNER_TEMP/dk-publication"
+          test ! -e "$RUNNER_TEMP/dk-publication/Publication/__pycache__/untracked-secret.txt"
+          python Publication/verify_snapshot.py "$RUNNER_TEMP/dk-publication"
+          test ! -e "$RUNNER_TEMP/dk-publication/Legacy"
+          test -f "$RUNNER_TEMP/dk-publication/Publication/verify_snapshot.py"
+      - name: Install dependencies for targeted tests
+        run: python -m pip install -r "$RUNNER_TEMP/dk-publication/requirements.txt"
+      - name: Validate synthetic method and bridge without archived data
+        working-directory: ${{ runner.temp }}/dk-publication
+        env:
+          MPLBACKEND: Agg
+          NUMBA_NUM_THREADS: '2'
+          OPENBLAS_NUM_THREADS: '1'
+        run: |
+          python -m unittest discover -s Tests -p 'test_preprocessed_example.py' -v
+          python -m unittest discover -s Tests -p 'test_downstream_bridge.py' -v
+          python -m unittest discover -s Tests -p 'test_pipeline.py' -v
+          python -m unittest discover -s Tests -p 'test_synthetic_nifti.py' -v
+          python -m unittest discover -s Tests -p 'test_numerical_smoke.py' -v
+          python -m unittest discover -s Tests -p 'test_real_grid_pipeline.py' -v
+          python -m unittest discover -s Tests -p 'test_real_fitting_pipeline.py' -v
+          python -m unittest discover -s Tests -p 'test_end_to_end_synthetic_nifti.py' -v
